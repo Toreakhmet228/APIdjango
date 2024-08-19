@@ -1,44 +1,46 @@
 from rest_framework import generics
 from rest_framework.response import Response
-from django.db.models import Q
+from django.db.models import Q, QuerySet
+from django_filters import rest_framework as filters
+from typing import Dict, List, Any
 from .models import Product, Review
 from .serializers import ProductSerializer, ReviewSerializer
 
+class ProductFilter(filters.FilterSet):
+    price_min = filters.NumberFilter(field_name="price", lookup_expr='gte')
+    price_max = filters.NumberFilter(field_name="price", lookup_expr='lte')
+    color = filters.CharFilter(field_name="color")
+    category = filters.NumberFilter(field_name="category__id")
+    search = filters.CharFilter(method='filter_by_search')
+
+    class Meta:
+        model = Product
+        fields = ['price_min', 'price_max', 'color', 'category', 'search']
+
+    def filter_by_search(self, queryset: QuerySet, name: str, value: str) -> QuerySet:
+        return queryset.filter(Q(title__icontains=value) | Q(description__icontains=value))
+
 class ProductListView(generics.ListAPIView):
     serializer_class = ProductSerializer
+    filter_backends = (filters.DjangoFilterBackend,)
+    filterset_class = ProductFilter
 
-    def get_queryset(self):
-        queryset = Product.objects.all()
-        color = self.request.query_params.get('color')
-        category = self.request.query_params.get('category')
-        price_min = self.request.query_params.get('price_min')
-        price_max = self.request.query_params.get('price_max')
-        search = self.request.query_params.get('search')
-
-        if color:
-            queryset = queryset.filter(color=color)
-        if category:
-            queryset = queryset.filter(category__id=category)
-        if price_min and price_max:
-            queryset = queryset.filter(price__gte=price_min, price__lte=price_max)
-        if search:
-            queryset = queryset.filter(Q(title__icontains=search) | Q(description__icontains=search))
-
-        return queryset
+    def get_queryset(self) -> QuerySet:
+        return Product.objects.all()
 
 class ReviewListView(generics.ListAPIView):
     serializer_class = ReviewSerializer
 
-    def get_queryset(self):
-        product_id = self.kwargs['product_id']
+    def get_queryset(self) -> QuerySet:
+        product_id: int = self.kwargs['product_id']
         return Review.objects.filter(product__id=product_id).order_by('-rate')
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        grouped_reviews = {}
+    def list(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        queryset: QuerySet = self.get_queryset()
+        grouped_reviews: Dict[int, List[Dict[str, Any]]] = {}
 
         for review in queryset:
-            rate = review.rate
+            rate: int = review.rate
             if rate not in grouped_reviews:
                 grouped_reviews[rate] = []
             grouped_reviews[rate].append(ReviewSerializer(review).data)
